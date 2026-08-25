@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AirDraw</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:#0c0e13;
+    --panel:rgba(20,23,31,.86);
+    --panel-solid:#14171f;
+    --panel-2:#1a1e28;
+    --line:#2a3040;
+    --ink:#eef1f7;
+    --ink-dim:#a3aabd;
+    --ink-faint:#6a7189;
+    --accent:#38bdf8;
+    --accent-dim:rgba(56,189,248,.16);
+    --draw:#2ee6a6;
+    --draw-dim:rgba(46,230,166,.16);
+    --erase:#ff6b6b;
+    --erase-dim:rgba(255,107,107,.16);
+    --idle:#7b8299;
+    --shadow:0 10px 40px rgba(0,0,0,.5);
+  }
+  :root[data-theme="light"]{
+    --bg:#eef1f6;
+    --panel:rgba(255,255,255,.86);
+    --panel-solid:#ffffff;
+    --panel-2:#eef1f7;
+    --line:#dde2ec;
+    --ink:#161a22;
+    --ink-dim:#5b6478;
+    --ink-faint:#8890a3;
+    --accent:#0284c7;
+    --accent-dim:rgba(2,132,199,.12);
+    --draw:#0f9d70;
+    --draw-dim:rgba(15,157,112,.12);
+    --erase:#dc3d5a;
+    --erase-dim:rgba(220,61,90,.1);
+    --idle:#8890a3;
+    --shadow:0 10px 34px rgba(30,41,59,.14);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);}
+  body{font-family:'Plus Jakarta Sans','Segoe UI',sans-serif; -webkit-font-smoothing:antialiased;}
+  .mono{font-family:'JetBrains Mono',monospace; font-variant-numeric:tabular-nums;}
+  button,input,select{font-family:inherit;}
+  ::selection{background:var(--accent-dim);}
+  svg{display:block;}
+
+  .icon-btn{
+    all:unset; cursor:pointer; width:38px; height:38px;
+    display:flex; align-items:center; justify-content:center;
+    border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--ink-dim);
+    transition:background .15s ease, color .15s ease, border-color .15s ease, transform .12s ease, box-shadow .15s ease;
+  }
+  .icon-btn:hover{color:var(--ink); background:#232838; border-color:var(--accent); transform:translateY(-1px); box-shadow:0 4px 14px rgba(56,189,248,.18);}
+  .icon-btn:active{transform:translateY(0px) scale(.94);}
+  .icon-btn.active{color:var(--accent); border-color:var(--accent); background:var(--accent-dim); box-shadow:0 0 0 3px rgba(56,189,248,.12), 0 4px 14px rgba(56,189,248,.22);}
+  .icon-btn:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible{
+    outline:2px solid var(--accent); outline-offset:2px;
+  }
+
+  .btn{
+    all:unset; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    padding:9px 16px; border-radius:10px; font-size:.84rem; font-weight:700; white-space:nowrap;
+    transition:transform .1s ease, filter .15s ease, opacity .15s ease, box-shadow .15s ease;
+  }
+  .btn:active{transform:translateY(1px) scale(.98);}
+  .btn:disabled{opacity:.45; cursor:default; pointer-events:none;}
+  .btn-primary{background:linear-gradient(135deg, #4fd8ff, var(--accent) 60%, #2f9ee0); color:#04202b; box-shadow:0 4px 18px rgba(56,189,248,.35);}
+  .btn-primary:hover{filter:brightness(1.1); box-shadow:0 6px 22px rgba(56,189,248,.5); transform:translateY(-1px);}
+  .btn-ghost{background:var(--panel-2); color:var(--ink); border:1px solid var(--line);}
+  .btn-ghost:hover{background:#232838; border-color:var(--accent); box-shadow:0 4px 14px rgba(56,189,248,.14);}
+  .btn-danger{background:transparent; color:var(--erase); border:1px solid rgba(255,107,107,.4);}
+  .btn-danger:hover{background:var(--erase-dim); box-shadow:0 4px 14px rgba(255,107,107,.18);}
+
+  /* ---------- fullscreen stage ---------- */
+  .stage{ position:fixed; inset:0; background:#000; }
+  .stage .whiteboard-bg{ position:absolute; inset:0; z-index:0; }
+  .stage video{
+    position:absolute; inset:0; width:100%; height:100%;
+    object-fit:cover; transform:scaleX(-1); z-index:1;
+    transition:opacity .2s ease;
+  }
+  .stage video.mirror-off{ transform:none; }
+  .stage video.cam-hidden{ opacity:0; }
+  .stage canvas{ position:absolute; inset:0; width:100%; height:100%; }
+  #inkCanvas{ z-index:2; }
+  #overlayCanvas{ z-index:3; }
+
+  .stage-placeholder{
+    position:absolute; inset:0; z-index:4;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    text-align:center; padding:30px; overflow-y:auto; overflow-x:hidden;
+    background:radial-gradient(60% 60% at 50% 42%, rgba(20,23,31,.75), rgba(9,10,14,.97));
+  }
+  :root[data-theme="light"] .stage-placeholder{
+    background:radial-gradient(60% 60% at 50% 42%, rgba(238,241,246,.8), rgba(230,234,242,.97));
+  }
+  .stage-placeholder .orb{
+    position:absolute; border-radius:50%; filter:blur(60px); opacity:.35;
+    animation:drift 14s ease-in-out infinite;
+  }
+  .stage-placeholder .orb1{width:340px; height:340px; background:var(--draw); top:-8%; left:8%; animation-delay:0s;}
+  .stage-placeholder .orb2{width:280px; height:280px; background:var(--accent); bottom:-10%; right:6%; animation-delay:-5s;}
+  .stage-placeholder .orb3{width:220px; height:220px; background:var(--erase); bottom:20%; left:-6%; animation-delay:-9s;}
+  @keyframes drift{
+    0%,100%{ transform:translate(0,0) scale(1); }
+    50%{ transform:translate(24px,-18px) scale(1.08); }
+  }
+  .stage-placeholder .inner{
+    position:relative; z-index:1; max-width:400px; width:100%;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+    animation:rise .5s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .startup-setup{
+    width:100%; max-width:320px;
+    display:flex; flex-direction:column; gap:13px;
+    background:var(--panel); backdrop-filter:blur(10px);
+    border:1px solid var(--line); border-radius:14px;
+    padding:16px 18px; box-shadow:var(--shadow);
+    text-align:left;
+  }
+  .startup-row{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .privacy-note-inline{
+    margin:0; font-size:.72rem; color:var(--ink-faint); line-height:1.5; max-width:320px;
+  }
+  @keyframes rise{
+    from{ opacity:0; transform:translateY(14px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  .stage-placeholder .cam-icon{
+    width:60px; height:60px; border-radius:50%;
+    background:var(--accent-dim); color:var(--accent);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 0 0 1px rgba(56,189,248,.25), 0 0 40px rgba(56,189,248,.3);
+    animation:pulseIcon 2.4s ease-in-out infinite;
+  }
+  @keyframes pulseIcon{
+    0%,100%{ box-shadow:0 0 0 1px rgba(56,189,248,.25), 0 0 30px rgba(56,189,248,.25); }
+    50%{ box-shadow:0 0 0 1px rgba(56,189,248,.4), 0 0 46px rgba(56,189,248,.45); }
+  }
+  .stage-placeholder h2{margin:0; font-size:1.2rem; font-weight:800;}
+  .stage-placeholder p{margin:0; font-size:.85rem; color:var(--ink-dim); line-height:1.6;}
+  .stage-placeholder.hidden{display:none;}
+
+  /* ---------- loading overlay ---------- */
+  .loading-overlay{
+    position:absolute; inset:0; z-index:6;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    background:rgba(9,10,14,.88); backdrop-filter:blur(6px);
+    opacity:1; visibility:visible; transition:opacity .25s ease, visibility .25s ease;
+  }
+  .loading-overlay.hidden{opacity:0; visibility:hidden; pointer-events:none;}
+  .spinner{
+    width:52px; height:52px; border-radius:50%;
+    border:3px solid rgba(56,189,248,.18);
+    border-top-color:var(--accent);
+    animation:spin 0.9s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .loading-overlay p{margin:0; font-size:.86rem; color:rgba(238,241,247,.75); text-align:center; max-width:280px;}
+
+  /* ---------- countdown overlay ---------- */
+  .countdown-overlay{
+    position:absolute; inset:0; z-index:7;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(9,10,14,.35);
+    opacity:1; visibility:visible; transition:opacity .3s ease, visibility .3s ease;
+  }
+  .countdown-overlay.hidden{opacity:0; visibility:hidden; pointer-events:none;}
+  .countdown-num{
+    font-family:'JetBrains Mono',monospace; font-weight:700;
+    font-size:clamp(5rem, 22vw, 11rem); line-height:1;
+    color:#ffffff; text-shadow:0 0 60px rgba(56,189,248,.7), 0 0 18px rgba(255,255,255,.6);
+  }
+  .countdown-num.pop{animation:countPop .7s cubic-bezier(.2,.8,.2,1);}
+  @keyframes countPop{
+    0%{ transform:scale(.4); opacity:0; }
+    30%{ transform:scale(1.12); opacity:1; }
+    60%{ transform:scale(1); }
+    100%{ transform:scale(1); opacity:1; }
+  }
+
+  /* ---------- floating chrome ---------- */
+  .topbar{
+    position:fixed; top:14px; left:14px; right:14px; z-index:20;
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    flex-wrap:wrap;
+  }
+  .brand{
+    display:flex; align-items:center; gap:10px;
+    background:var(--panel); backdrop-filter:blur(10px);
+    border:1px solid var(--line); border-radius:12px;
+    padding:8px 14px; box-shadow:var(--shadow);
+  }
+  .brand h1{
+    margin:0; font-size:1.05rem; font-weight:800; letter-spacing:-.01em;
+    background:linear-gradient(100deg, #eef1f7 10%, var(--accent) 45%, var(--draw) 65%, #eef1f7 90%);
+    background-size:220% 100%;
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    animation:shimmer 7s linear infinite;
+  }
+  @keyframes shimmer{
+    0%{ background-position:0% 50%; }
+    100%{ background-position:220% 50%; }
+  }
+  .brand .tag{font-size:.7rem; color:var(--ink-dim); font-weight:500;}
+  .top-actions{
+    display:flex; gap:8px; align-items:center;
+    background:var(--panel); backdrop-filter:blur(10px);
+    border:1px solid var(--line); border-radius:12px;
+    padding:6px; box-shadow:var(--shadow);
+  }
+
+  .statusbar{
+    position:fixed; left:14px; right:14px; bottom:14px; z-index:20;
+    display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+  .gesture-chip{
+    display:flex; align-items:center; gap:8px;
+    font-size:.82rem; font-weight:700;
+    padding:9px 15px; border-radius:999px;
+    background:var(--panel); backdrop-filter:blur(10px);
+    border:1px solid var(--line); color:var(--ink-dim);
+    box-shadow:var(--shadow);
+  }
+  .gesture-chip{transition:background .2s ease, border-color .2s ease, color .2s ease, transform .2s ease;}
+  .gesture-chip.pulse{animation:chipPulse .32s ease;}
+  @keyframes chipPulse{ 0%{ transform:scale(1); } 40%{ transform:scale(1.06); } 100%{ transform:scale(1); } }
+  .gesture-chip .dot{width:9px; height:9px; border-radius:50%; background:var(--idle); box-shadow:0 0 10px var(--idle); transition:background .2s ease, box-shadow .2s ease;}
+  .gesture-chip .dot.live{animation:dotBeat 1s ease-in-out infinite;}
+  @keyframes dotBeat{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.35); } }
+  .gesture-chip.draw{color:var(--draw); border-color:rgba(46,230,166,.4); background:rgba(46,230,166,.1);}
+  .gesture-chip.draw .dot{background:var(--draw); box-shadow:0 0 10px var(--draw);}
+  .gesture-chip.erase{color:var(--erase); border-color:rgba(255,107,107,.4); background:rgba(255,107,107,.1);}
+  .gesture-chip.erase .dot{background:var(--erase); box-shadow:0 0 10px var(--erase);}
+  .status-left{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .rec-badge{
+    display:flex; align-items:center; gap:7px;
+    font-size:.78rem; font-weight:700; font-variant-numeric:tabular-nums;
+    padding:9px 14px; border-radius:999px;
+    background:rgba(255,107,107,.14); border:1px solid rgba(255,107,107,.4); color:var(--erase);
+    box-shadow:var(--shadow);
+  }
+  .rec-badge.hidden{display:none;}
+  .rec-badge .rec-dot{width:8px; height:8px; border-radius:50%; background:var(--erase); animation:recBlink 1s ease-in-out infinite;}
+  @keyframes recBlink{ 0%,100%{opacity:1;} 50%{opacity:.25;} }
+  .btn-record.recording{background:var(--erase); color:#2b0a10; border-color:var(--erase);}
+  .btn-record.recording:hover{filter:brightness(1.08); box-shadow:0 4px 14px rgba(255,107,107,.35);}
+  .status-msg{
+    font-size:.76rem; color:var(--ink-dim);
+    background:var(--panel); backdrop-filter:blur(10px);
+    border:1px solid var(--line); border-radius:999px; padding:8px 14px;
+    max-width:46ch; box-shadow:var(--shadow);
+  }
+  .status-msg:empty{display:none;}
+  .status-actions{display:flex; gap:8px; flex-wrap:wrap;}
+
+  /* ---------- settings drawer ---------- */
+  .drawer-backdrop{
+    position:fixed; inset:0; z-index:29;
+    background:rgba(6,7,10,.35);
+    opacity:0; visibility:hidden;
+    transition:opacity .25s ease, visibility .25s ease;
+  }
+  .drawer-backdrop.open{opacity:1; visibility:visible;}
+  .drawer{
+    position:fixed; top:0; right:0; bottom:0; z-index:30;
+    width:320px; max-width:88vw;
+    background:var(--panel-solid); border-left:1px solid var(--line);
+    box-shadow:-20px 0 50px rgba(0,0,0,.5);
+    transform:translateX(100%);
+    transition:transform .28s cubic-bezier(.2,.8,.2,1);
+    display:flex; flex-direction:column;
+  }
+  .drawer.open{transform:translateX(0);}
+  .drawer-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 18px; border-bottom:1px solid var(--line); flex:none;
+  }
+  .drawer-head h2{margin:0; font-size:.98rem; font-weight:800;}
+  .drawer-body{padding:16px 18px 24px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;}
+
+  .field{display:flex; flex-direction:column; gap:6px;}
+  .field-label{display:flex; align-items:center; justify-content:space-between; font-size:.72rem; font-weight:700; color:var(--ink-dim); text-transform:uppercase; letter-spacing:.03em;}
+  .field-label .val{color:var(--ink); font-family:'JetBrains Mono',monospace; font-weight:600; text-transform:none; letter-spacing:0;}
+  input[type=range]{width:100%; accent-color:var(--accent);}
+  input[type=color]{
+    width:100%; height:34px; border-radius:8px; border:1px solid var(--line);
+    background:var(--panel-2); padding:2px; cursor:pointer;
+  }
+  select{
+    width:100%; padding:8px 10px; border-radius:9px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--ink); font-size:.85rem;
+  }
+  .toggle-row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .toggle-row .lbl{font-size:.84rem; color:var(--ink);}
+  .switch{position:relative; width:40px; height:22px; flex:none;}
+  .switch input{position:absolute; opacity:0; inset:0; margin:0; cursor:pointer;}
+  .switch .track{
+    position:absolute; inset:0; border-radius:999px; background:var(--panel-2);
+    border:1px solid var(--line); transition:background .15s ease, border-color .15s ease;
+  }
+  .switch .thumb{
+    position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%;
+    background:var(--ink-dim); transition:transform .15s ease, background .15s ease;
+  }
+  .switch input:checked + .track{background:var(--accent-dim); border-color:var(--accent);}
+  .switch input:checked + .track .thumb{transform:translateX(18px); background:var(--accent);}
+
+  .divider{height:1px; background:var(--line); margin:2px 0;}
+  .drawer-section{display:flex; flex-direction:column; gap:13px; padding-top:14px; border-top:1px solid var(--line);}
+  .drawer-section:first-child{padding-top:0; border-top:none;}
+  .drawer-section-label{font-size:.66rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-faint);}
+
+  .guide-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px;}
+  .guide-list li{display:flex; align-items:center; gap:10px; font-size:.82rem; color:var(--ink-dim);}
+  .guide-emoji{font-size:1.15rem; width:1.6em; text-align:center;}
+
+  .privacy-note{
+    font-size:.74rem; color:var(--ink-faint); line-height:1.55;
+    padding:12px 14px; border-radius:10px; background:var(--panel-2); border:1px solid var(--line);
+  }
+  .privacy-note strong{color:var(--ink-dim);}
+
+  /* ---------- help modal ---------- */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(6,7,10,.6);
+    display:flex; align-items:center; justify-content:center; padding:20px; z-index:60;
+    opacity:1; visibility:visible; transition:opacity .18s ease, visibility .18s ease;
+  }
+  .modal-overlay.hidden{opacity:0; visibility:hidden; pointer-events:none;}
+  .modal-overlay.hidden .modal{transform:scale(.94) translateY(6px);}
+  .modal{
+    width:100%; max-width:420px; background:var(--panel-solid); border:1px solid var(--line);
+    border-radius:16px; box-shadow:var(--shadow); padding:22px;
+    transform:scale(1) translateY(0);
+    transition:transform .22s cubic-bezier(.2,.8,.2,1);
+  }
+  .modal h3{margin:0 0 14px; font-size:1.05rem; font-weight:800;}
+  .modal .modal-close{margin-top:18px; width:100%;}
+  .modal p{margin:0 0 18px; font-size:.86rem; color:var(--ink-dim); line-height:1.55;}
+  .modal-actions{display:flex; justify-content:flex-end; gap:8px;}
+
+  @media (max-width:640px){
+    .brand .tag{display:none;}
+    .drawer{width:100vw; max-width:100vw;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .btn, .switch .thumb, .switch .track, .stage video, .drawer, .modal,
+    .gesture-chip, .gesture-chip .dot{transition:none !important;}
+    .brand h1, .stage-placeholder .orb, .stage-placeholder .cam-icon,
+    .spinner, .gesture-chip.pulse, .gesture-chip .dot.live,
+    .countdown-num.pop, .rec-dot{animation:none !important;}
+  }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <div class="whiteboard-bg" id="whiteboardBg"></div>
+  <video id="video" class="cam-hidden" playsinline muted></video>
+  <canvas id="inkCanvas"></canvas>
+  <canvas id="overlayCanvas"></canvas>
+  <div class="stage-placeholder" id="placeholder">
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+    <div class="orb orb3"></div>
+    <div class="inner">
+      <div class="cam-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+      </div>
+      <h2>Set up your brush</h2>
+      <p>Pick a color and size before you start — you can change these anytime from Customize.</p>
+
+      <div class="startup-setup">
+        <div class="startup-row">
+          <div class="field">
+            <div class="field-label">Brush color</div>
+            <input type="color" id="startColor" value="#2ee6a6">
+          </div>
+          <div class="field">
+            <div class="field-label">Hands</div>
+            <select id="startMaxHands">
+              <option value="1">1 hand</option>
+              <option value="2">2 hands (auto-switch)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Brush size <span class="val" id="startBrushSizeVal">6px</span></div>
+          <input type="range" id="startBrushSize" min="2" max="40" value="6">
+        </div>
+        <div class="field">
+          <div class="field-label">Eraser size <span class="val" id="startEraserSizeVal">50px</span></div>
+          <input type="range" id="startEraserSize" min="10" max="150" value="50">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="startBtn">Start camera</button>
+      <p class="privacy-note-inline">Camera access is requested only when you click Start — nothing is recorded or sent anywhere.</p>
+    </div>
+  </div>
+  <div class="loading-overlay hidden" id="loadingOverlay">
+    <div class="spinner"></div>
+    <p id="loadingMsg">Loading hand-tracking model…</p>
+  </div>
+  <div class="countdown-overlay hidden" id="countdownOverlay">
+    <div class="countdown-num" id="countdownNum">3</div>
+  </div>
+</div>
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <h1>AirDraw</h1>
+    <span class="tag">one finger draws · two fingers erase</span>
+  </div>
+  <div class="top-actions">
+    <button class="icon-btn" id="themeBtn" title="Toggle light/dark" aria-label="Toggle light/dark">
+      <svg id="themeIconMoon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+      <svg id="themeIconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+    </button>
+    <button class="icon-btn" id="helpBtn" title="How it works" aria-label="How it works">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 2-3 4"/><path d="M12 17h.01"/></svg>
+    </button>
+    <button class="icon-btn" id="settingsToggleBtn" title="Customize" aria-label="Customize">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="statusbar">
+  <div class="status-left">
+    <div class="gesture-chip" id="gestureChip"><span class="dot"></span><span id="gestureLabel">Camera off</span></div>
+    <div class="rec-badge hidden" id="recBadge"><span class="rec-dot"></span><span id="recTime">0:00</span></div>
+  </div>
+  <div class="status-msg" id="statusMsg"></div>
+  <div class="status-actions">
+    <button class="btn btn-ghost btn-record" id="recordBtn" disabled>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="7"/></svg>
+      Record
+    </button>
+    <button class="btn btn-ghost" id="stopBtn" disabled>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      Stop camera
+    </button>
+    <button class="btn btn-ghost" id="saveBtn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      Save PNG
+    </button>
+    <button class="btn btn-danger" id="clearBtn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
+      Clear canvas
+    </button>
+  </div>
+</div>
+
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h2>Customize</h2>
+    <button class="icon-btn" id="drawerCloseBtn" aria-label="Close">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+
+    <div class="drawer-section">
+      <span class="drawer-section-label">Brush</span>
+      <div class="field">
+        <div class="field-label">Color</div>
+        <input type="color" id="brushColor" value="#2ee6a6">
+      </div>
+      <div class="field">
+        <div class="field-label">Size <span class="val" id="brushSizeVal">6px</span></div>
+        <input type="range" id="brushSize" min="2" max="40" value="6">
+      </div>
+      <div class="field">
+        <div class="field-label">Eraser size <span class="val" id="eraserSizeVal">50px</span></div>
+        <input type="range" id="eraserSize" min="10" max="150" value="50">
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <span class="drawer-section-label">Tracking</span>
+      <div class="field">
+        <div class="field-label">Hands to track</div>
+        <select id="maxHands">
+          <option value="1">1 (simplest, most stable)</option>
+          <option value="2">2 (auto-switches when active hand leaves)</option>
+        </select>
+      </div>
+      <div class="toggle-row">
+        <span class="lbl">Mirror view</span>
+        <label class="switch"><input type="checkbox" id="mirrorView" checked><span class="track"><span class="thumb"></span></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="lbl">Show hand skeleton</span>
+        <label class="switch"><input type="checkbox" id="showSkeleton"><span class="track"><span class="thumb"></span></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="lbl">Smooth strokes</span>
+        <label class="switch"><input type="checkbox" id="smoothStrokes" checked><span class="track"><span class="thumb"></span></span></label>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <span class="drawer-section-label">Display</span>
+      <div class="toggle-row">
+        <span class="lbl">Show camera feed</span>
+        <label class="switch"><input type="checkbox" id="showCamera" checked><span class="track"><span class="thumb"></span></span></label>
+      </div>
+      <div class="field" id="whiteboardColorField" style="display:none;">
+        <div class="field-label">Whiteboard color</div>
+        <input type="color" id="whiteboardColor" value="#0c0e13">
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <span class="drawer-section-label">Gestures</span>
+      <ul class="guide-list">
+        <li><span class="guide-emoji">☝️</span> Index finger only — draw</li>
+        <li><span class="guide-emoji">✌️</span> Index + middle — erase</li>
+        <li><span class="guide-emoji">✊</span> Anything else — pause</li>
+        <li><span class="guide-emoji">🤚</span> 2 hands: follows one until it leaves frame</li>
+      </ul>
+    </div>
+
+    <div class="privacy-note">
+      <strong>Privacy:</strong> hand tracking runs 100% on-device in your browser (WASM/GPU). No video frame or drawing ever leaves your machine — there is no server, no upload, no account. "Save PNG" and "Record" both write straight to your downloads folder.
+    </div>
+  </div>
+</aside>
+
+<div class="modal-overlay hidden" id="helpOverlay">
+  <div class="modal">
+    <h3>How AirDraw works</h3>
+    <ul class="guide-list">
+      <li><span class="guide-emoji">☝️</span> Hold up only your index finger to draw with your fingertip.</li>
+      <li><span class="guide-emoji">✌️</span> Hold up index + middle finger to erase around that point.</li>
+      <li><span class="guide-emoji">✊</span> A fist, an open hand, or no hand in frame just pauses — nothing is drawn.</li>
+      <li><span class="guide-emoji">🤚</span> With 2 hands enabled, AirDraw follows one hand at a time and only switches to the other once the first leaves the frame.</li>
+      <li><span class="guide-emoji">⏱️</span> Starting the camera runs a 3-2-1 countdown so you have time to get in position.</li>
+      <li><span class="guide-emoji">🔴</span> Hit Record to save a video of your drawing session (with your camera and strokes) straight to your downloads.</li>
+      <li><span class="guide-emoji">⚙️</span> Open Customize (top right) for brush/eraser size, colors, mirroring, camera visibility, and the hand skeleton.</li>
+      <li><span class="guide-emoji">🔒</span> Everything runs locally in your browser. Stop the camera any time — it fully releases the webcam.</li>
+    </ul>
+    <button class="btn btn-primary modal-close" id="helpCloseBtn">Got it</button>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="savePngPromptOverlay">
+  <div class="modal">
+    <h3>Recording saved</h3>
+    <p>Your video downloaded. Want to also save the current drawing as a PNG?</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="savePngPromptNo">No thanks</button>
+      <button class="btn btn-primary" id="savePngPromptYes">Save PNG</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  var video = $("video");
+  var inkCanvas = $("inkCanvas");
+  var overlayCanvas = $("overlayCanvas");
+  var inkCtx = inkCanvas.getContext("2d");
+  var overlayCtx = overlayCanvas.getContext("2d");
+  var stage = $("stage");
+  var placeholder = $("placeholder");
+  var whiteboardBg = $("whiteboardBg");
+  var gestureChip = $("gestureChip");
+  var gestureLabel = $("gestureLabel");
+  var statusMsg = $("statusMsg");
+  var startBtn = $("startBtn");
+  var stopBtn = $("stopBtn");
+  var saveBtn = $("saveBtn");
+  var clearBtn = $("clearBtn");
+  var recordBtn = $("recordBtn");
+  var recBadge = $("recBadge");
+  var recTimeEl = $("recTime");
+  var drawer = $("drawer");
+
+  function shadeHex(hex, percent){
+    var num = parseInt(hex.replace("#",""), 16);
+    var amt = Math.round(2.55 * percent);
+    var r = Math.max(0, Math.min(255, (num >> 16) + amt));
+    var g = Math.max(0, Math.min(255, ((num >> 8) & 0xFF) + amt));
+    var b = Math.max(0, Math.min(255, (num & 0xFF) + amt));
+    return "#" + (0x1000000 + r*0x10000 + g*0x100 + b).toString(16).slice(1);
+  }
+
+  var settings = {
+    color: "#2ee6a6",
+    brushSize: 6,
+    eraserSize: 50,
+    maxHands: 1,
+    showCamera: true,
+    mirror: true,
+    showSkeleton: false,
+    smooth: true,
+    whiteboardColor: "#0c0e13"
+  };
+
+  /* ---------- settings UI wiring ---------- */
+  function fmtPx(v){ return v + "px"; }
+
+  // brush color, brush size, eraser size and hand count each have a control
+  // on the startup screen AND in the Customize drawer — these setters keep
+  // both copies in sync no matter which one the user touches.
+  function setBrushColor(v){
+    settings.color = v;
+    $("brushColor").value = v;
+    $("startColor").value = v;
+  }
+  function setBrushSize(v){
+    settings.brushSize = v;
+    $("brushSize").value = v;
+    $("startBrushSize").value = v;
+    $("brushSizeVal").textContent = fmtPx(v);
+    $("startBrushSizeVal").textContent = fmtPx(v);
+  }
+  function setEraserSize(v){
+    settings.eraserSize = v;
+    $("eraserSize").value = v;
+    $("startEraserSize").value = v;
+    $("eraserSizeVal").textContent = fmtPx(v);
+    $("startEraserSizeVal").textContent = fmtPx(v);
+  }
+  function setMaxHands(v){
+    settings.maxHands = v;
+    $("maxHands").value = v;
+    $("startMaxHands").value = v;
+    if (handLandmarker) createLandmarker();
+  }
+
+  $("brushColor").addEventListener("input", function(e){ setBrushColor(e.target.value); });
+  $("startColor").addEventListener("input", function(e){ setBrushColor(e.target.value); });
+  $("brushSize").addEventListener("input", function(e){ setBrushSize(+e.target.value); });
+  $("startBrushSize").addEventListener("input", function(e){ setBrushSize(+e.target.value); });
+  $("eraserSize").addEventListener("input", function(e){ setEraserSize(+e.target.value); });
+  $("startEraserSize").addEventListener("input", function(e){ setEraserSize(+e.target.value); });
+  $("maxHands").addEventListener("change", function(e){ setMaxHands(+e.target.value); });
+  $("startMaxHands").addEventListener("change", function(e){ setMaxHands(+e.target.value); });
+
+  /* ---------- theme ---------- */
+  var THEME_KEY = "airdraw.theme";
+  function applyTheme(t){
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
+    $("themeIconMoon").style.display = t === "light" ? "none" : "";
+    $("themeIconSun").style.display = t === "light" ? "" : "none";
+  }
+  var savedTheme = null;
+  try{ savedTheme = localStorage.getItem(THEME_KEY); }catch(e){}
+  applyTheme(savedTheme);
+  $("themeBtn").addEventListener("click", function(){
+    var next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+    applyTheme(next);
+    try{ localStorage.setItem(THEME_KEY, next); }catch(e){}
+  });
+
+  $("showCamera").addEventListener("change", function(e){
+    settings.showCamera = e.target.checked;
+    video.classList.toggle("cam-hidden", !settings.showCamera);
+    $("whiteboardColorField").style.display = settings.showCamera ? "none" : "";
+    whiteboardBg.style.background = settings.showCamera ? "transparent" : settings.whiteboardColor;
+  });
+  $("whiteboardColor").addEventListener("input", function(e){
+    settings.whiteboardColor = e.target.value;
+    if (!settings.showCamera) whiteboardBg.style.background = settings.whiteboardColor;
+  });
+  $("mirrorView").addEventListener("change", function(e){
+    settings.mirror = e.target.checked;
+    video.classList.toggle("mirror-off", !settings.mirror);
+  });
+  $("showSkeleton").addEventListener("change", function(e){ settings.showSkeleton = e.target.checked; });
+  $("smoothStrokes").addEventListener("change", function(e){ settings.smooth = e.target.checked; });
+
+  /* ---------- drawer + help modal ---------- */
+  var drawerBackdrop = $("drawerBackdrop");
+  function setDrawerOpen(open){
+    drawer.classList.toggle("open", open);
+    drawerBackdrop.classList.toggle("open", open);
+    $("settingsToggleBtn").classList.toggle("active", open);
+  }
+  $("settingsToggleBtn").addEventListener("click", function(){
+    setDrawerOpen(!drawer.classList.contains("open"));
+  });
+  $("drawerCloseBtn").addEventListener("click", function(){ setDrawerOpen(false); });
+  drawerBackdrop.addEventListener("click", function(){ setDrawerOpen(false); });
+
+  var helpOverlay = $("helpOverlay");
+  $("helpBtn").addEventListener("click", function(){ helpOverlay.classList.remove("hidden"); });
+  $("helpCloseBtn").addEventListener("click", function(){ helpOverlay.classList.add("hidden"); });
+  helpOverlay.addEventListener("click", function(e){ if (e.target === helpOverlay) helpOverlay.classList.add("hidden"); });
+  document.addEventListener("keydown", function(e){ if (e.key === "Escape") helpOverlay.classList.add("hidden"); });
+
+  /* ---------- canvas sizing (full viewport) ---------- */
+  var pixelRatio = 1;
+  function resizeCanvases(){
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    pixelRatio = dpr;
+    var w = window.innerWidth, h = window.innerHeight;
+
+    var prev = document.createElement("canvas");
+    prev.width = inkCanvas.width; prev.height = inkCanvas.height;
+    if (prev.width && prev.height) prev.getContext("2d").drawImage(inkCanvas, 0, 0);
+
+    inkCanvas.width = Math.round(w * dpr);
+    inkCanvas.height = Math.round(h * dpr);
+    overlayCanvas.width = Math.round(w * dpr);
+    overlayCanvas.height = Math.round(h * dpr);
+    if (typeof recordCanvas !== "undefined"){
+      recordCanvas.width = inkCanvas.width;
+      recordCanvas.height = inkCanvas.height;
+    }
+
+    if (prev.width && prev.height){
+      inkCtx.drawImage(prev, 0, 0, prev.width, prev.height, 0, 0, inkCanvas.width, inkCanvas.height);
+    }
+  }
+  window.addEventListener("resize", resizeCanvases);
+  resizeCanvases();
+
+  $("clearBtn").addEventListener("click", function(){
+    inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height);
+  });
+
+  function savePng(){
+    var out = document.createElement("canvas");
+    out.width = inkCanvas.width; out.height = inkCanvas.height;
+    var octx = out.getContext("2d");
+    octx.fillStyle = settings.showCamera ? "#0c0e13" : settings.whiteboardColor;
+    octx.fillRect(0,0,out.width,out.height);
+    octx.drawImage(inkCanvas, 0, 0);
+    var url = out.toDataURL("image/png");
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "airdraw-" + Date.now() + ".png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  $("saveBtn").addEventListener("click", savePng);
+
+  var savePngPromptOverlay = $("savePngPromptOverlay");
+  $("savePngPromptYes").addEventListener("click", function(){
+    savePng();
+    savePngPromptOverlay.classList.add("hidden");
+  });
+  $("savePngPromptNo").addEventListener("click", function(){
+    savePngPromptOverlay.classList.add("hidden");
+  });
+
+  /* ---------- hand geometry ---------- */
+  var CONNECTIONS = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],
+    [0,17]
+  ];
+  // thumb intentionally excluded: its extension reads unreliably from a
+  // front-facing camera and made the finger count jump to 2+ even with
+  // only the index finger raised, so drawing rarely engaged.
+  var COUNTED_FINGERS = [
+    { tip:8,  pip:6  }, // index
+    { tip:12, pip:10 }, // middle
+    { tip:16, pip:14 }, // ring
+    { tip:20, pip:18 }  // pinky
+  ];
+
+  function countExtendedFingers(lm){
+    var n = 0;
+    COUNTED_FINGERS.forEach(function(f){
+      // tip above (smaller y than) its pip joint = finger is straight/up
+      if (lm[f.tip].y < lm[f.pip].y - 0.02) n++;
+    });
+    return n;
+  }
+
+  /* ---------- single-focus hand state ---------- */
+  // only one hand ever draws at a time. When 2 hands are being tracked,
+  // AirDraw locks onto whichever hand it saw first (identified by
+  // MediaPipe's Left/Right label, which is stable across frames — unlike
+  // array index, which can swap between two hands frame to frame) and
+  // ignores the other one entirely until the focused hand leaves the frame.
+  function freshHandState(){
+    return { lastX:null, lastY:null, midX:null, midY:null, smX:null, smY:null, rawX:null, rawY:null, countBuf:[] };
+  }
+  var handState = freshHandState();
+  var focusedLabel = null;
+
+  function getHandLabel(result, i){
+    var hd = result.handedness || result.handednesses;
+    if (hd && hd[i] && hd[i][0] && hd[i][0].categoryName) return hd[i][0].categoryName;
+    return "hand" + i;
+  }
+
+  /* ---------- sparkle particles (drawn on the overlay every frame) ---------- */
+  var particles = [];
+  function spawnParticles(x, y, color){
+    for (var i=0;i<3;i++){
+      var ang = Math.random()*Math.PI*2;
+      var speed = 0.4 + Math.random()*1.3;
+      particles.push({
+        x:x, y:y,
+        vx:Math.cos(ang)*speed, vy:Math.sin(ang)*speed,
+        life:1, color:color, r:(1.4+Math.random()*1.6)*pixelRatio
+      });
+    }
+    if (particles.length > 220) particles.splice(0, particles.length-220);
+  }
+  function updateAndDrawParticles(){
+    particles.forEach(function(p){ p.x+=p.vx; p.y+=p.vy; p.vy+=0.015; p.life-=0.035; });
+    particles = particles.filter(function(p){ return p.life > 0; });
+    particles.forEach(function(p){
+      overlayCtx.save();
+      overlayCtx.globalAlpha = Math.max(p.life, 0);
+      overlayCtx.fillStyle = p.color;
+      overlayCtx.shadowColor = p.color;
+      overlayCtx.shadowBlur = 6*pixelRatio;
+      overlayCtx.beginPath();
+      overlayCtx.arc(p.x, p.y, p.r*p.life, 0, Math.PI*2);
+      overlayCtx.fill();
+      overlayCtx.restore();
+    });
+  }
+
+  /* ---------- glowing ink strokes ---------- */
+  // three passes: a subtle halo (glow accent only, not the main mass), a
+  // fully-opaque body (this is what makes the brush read as solid instead
+  // of translucent), and a thin bright "hot core" for a punchy neon-tube look.
+  // a crisp, fully-opaque, unblurred core is what makes a line read as a
+  // smooth pen stroke — stacking blur on every tiny segment (there can be
+  // dozens per second) is what was giving strokes a rough "chalky" texture.
+  // The glow is now a single soft, low-alpha halo underneath, not blurred
+  // on top of an already-blurred core.
+  function strokeGlowSegment(x1,y1,cx,cy,x2,y2,color,width){
+    inkCtx.save();
+    inkCtx.globalCompositeOperation = "source-over";
+    inkCtx.lineCap = "round";
+    inkCtx.lineJoin = "round";
+
+    inkCtx.strokeStyle = color;
+    inkCtx.shadowColor = color;
+    inkCtx.globalAlpha = 0.16;
+    inkCtx.shadowBlur = width*1.1;
+    inkCtx.lineWidth = width*1.5;
+    inkCtx.beginPath(); inkCtx.moveTo(x1,y1); inkCtx.quadraticCurveTo(cx,cy,x2,y2); inkCtx.stroke();
+
+    inkCtx.globalAlpha = 1;
+    inkCtx.shadowBlur = 0;
+    inkCtx.lineWidth = width;
+    inkCtx.beginPath(); inkCtx.moveTo(x1,y1); inkCtx.quadraticCurveTo(cx,cy,x2,y2); inkCtx.stroke();
+    inkCtx.restore();
+  }
+  function strokeGlowDot(x,y,color,width){
+    inkCtx.save();
+    inkCtx.globalCompositeOperation = "source-over";
+    inkCtx.fillStyle = color;
+    inkCtx.globalAlpha = 0.16;
+    inkCtx.shadowColor = color;
+    inkCtx.shadowBlur = width*0.9;
+    inkCtx.beginPath(); inkCtx.arc(x,y,width*0.7,0,Math.PI*2); inkCtx.fill();
+    inkCtx.globalAlpha = 1;
+    inkCtx.shadowBlur = 0;
+    inkCtx.beginPath(); inkCtx.arc(x,y,width/2,0,Math.PI*2); inkCtx.fill();
+    inkCtx.restore();
+  }
+  function softEraseDab(x,y,r){
+    var grad = inkCtx.createRadialGradient(x,y,0,x,y,r);
+    grad.addColorStop(0, "rgba(0,0,0,1)");
+    grad.addColorStop(0.65, "rgba(0,0,0,1)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    inkCtx.save();
+    inkCtx.globalCompositeOperation = "destination-out";
+    inkCtx.fillStyle = grad;
+    inkCtx.beginPath(); inkCtx.arc(x,y,r,0,Math.PI*2); inkCtx.fill();
+    inkCtx.restore();
+  }
+
+  function mapPoint(nx, ny){
+    var vw = video.videoWidth || inkCanvas.width;
+    var vh = video.videoHeight || inkCanvas.height;
+    var cw = inkCanvas.width, ch = inkCanvas.height;
+    var scale = Math.max(cw / vw, ch / vh);
+    var dw = vw * scale, dh = vh * scale;
+    var offX = (cw - dw) / 2, offY = (ch - dh) / 2;
+    var x = offX + nx * dw;
+    var y = offY + ny * dh;
+    if (settings.mirror) x = cw - x;
+    return { x:x, y:y };
+  }
+
+  function majorityCount(buf){
+    var counts = {}, best = buf[0], bestN = 0;
+    buf.forEach(function(v){
+      counts[v] = (counts[v]||0) + 1;
+      if (counts[v] > bestN){ bestN = counts[v]; best = v; }
+    });
+    return best;
+  }
+
+  /* ---------- skeleton (drawn fresh each frame on the overlay canvas) ---------- */
+  var FINGER_COLORS = {
+    thumb:"#ffd166", index:"#2ee6a6", middle:"#38bdf8", ring:"#c084fc", pinky:"#ff8fab"
+  };
+  var SEGMENTS = [
+    { name:"thumb",  bones:[[0,1],[1,2],[2,3],[3,4]] },
+    { name:"index",  bones:[[0,5],[5,6],[6,7],[7,8]] },
+    { name:"middle", bones:[[5,9],[9,10],[10,11],[11,12]] },
+    { name:"ring",   bones:[[9,13],[13,14],[14,15],[15,16]] },
+    { name:"pinky",  bones:[[13,17],[17,18],[18,19],[19,20]] },
+    { name:"palm",   bones:[[0,17]] }
+  ];
+
+  var TIP_INDEXES = [4, 8, 12, 16, 20];
+  var TIP_FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"];
+
+  function drawSkeleton(lm, now){
+    var pts = lm.map(function(p){ return mapPoint(p.x, p.y); });
+
+    // bones: gradient from a dim base tone up to the full finger color,
+    // brightening toward the fingertip
+    SEGMENTS.forEach(function(seg){
+      var color = FINGER_COLORS[seg.name] || "#e8ebf3";
+      var dim = shadeHex(color, -40);
+      overlayCtx.save();
+      overlayCtx.lineCap = "round";
+      overlayCtx.lineJoin = "round";
+      overlayCtx.shadowColor = color;
+      overlayCtx.shadowBlur = 9 * pixelRatio;
+      overlayCtx.lineWidth = 3.1 * pixelRatio;
+      seg.bones.forEach(function(b){
+        var p1 = pts[b[0]], p2 = pts[b[1]];
+        var grad = overlayCtx.createLinearGradient(p1.x, p1.y, p2.x, p2.y);
+        grad.addColorStop(0, dim);
+        grad.addColorStop(1, color);
+        overlayCtx.strokeStyle = grad;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(p1.x, p1.y);
+        overlayCtx.lineTo(p2.x, p2.y);
+        overlayCtx.stroke();
+      });
+      overlayCtx.restore();
+    });
+
+    // joints: bright glowing dots, bigger at the wrist and fingertips
+    pts.forEach(function(pt, i){
+      var isTip = TIP_INDEXES.indexOf(i) !== -1;
+      var isWrist = i === 0;
+      var r = (isWrist ? 5.5 : isTip ? 4 : 2.4) * pixelRatio;
+      overlayCtx.save();
+      overlayCtx.fillStyle = "#ffffff";
+      overlayCtx.shadowColor = "rgba(255,255,255,.9)";
+      overlayCtx.shadowBlur = 5 * pixelRatio;
+      overlayCtx.beginPath();
+      overlayCtx.arc(pt.x, pt.y, r, 0, Math.PI*2);
+      overlayCtx.fill();
+      overlayCtx.restore();
+    });
+
+    // pulsing targeting reticles on each fingertip — the "cool HUD" touch
+    TIP_INDEXES.forEach(function(tipI, k){
+      var pt = pts[tipI];
+      var color = FINGER_COLORS[TIP_FINGER_NAMES[k]];
+      var phase = (now / 650 + k * 0.55) % (Math.PI * 2);
+      var pulse = 0.5 + 0.5 * Math.sin(phase);
+      var r = (8 + pulse * 4.5) * pixelRatio;
+      overlayCtx.save();
+      overlayCtx.strokeStyle = color;
+      overlayCtx.globalAlpha = 0.3 + pulse * 0.4;
+      overlayCtx.lineWidth = 1.5 * pixelRatio;
+      overlayCtx.setLineDash([2.6 * pixelRatio, 4 * pixelRatio]);
+      overlayCtx.beginPath();
+      overlayCtx.arc(pt.x, pt.y, r, 0, Math.PI*2);
+      overlayCtx.stroke();
+      overlayCtx.restore();
+    });
+  }
+
+  function processHand(lm, hs, now){
+    var rawCount = countExtendedFingers(lm);
+
+    hs.countBuf.push(rawCount);
+    if (hs.countBuf.length > 4) hs.countBuf.shift();
+    var count = majorityCount(hs.countBuf);
+
+    var tip = lm[8]; // index fingertip is always the active point
+
+    // when a hand is partially out of frame (exiting to a side, or just
+    // near the boundary), MediaPipe's landmark regression tends to
+    // extrapolate the fingertip toward the frame edge rather than losing
+    // it cleanly — and because that slide happens gradually frame to
+    // frame, not as one big jump, it slips past the jump-guard below and
+    // draws a line running off toward that edge. Treat "raw tip very close
+    // to any edge" as unreliable and pause instead of trusting it.
+    var EDGE_MARGIN = 0.035;
+    var nearEdge = tip.x < EDGE_MARGIN || tip.x > 1 - EDGE_MARGIN ||
+                   tip.y < EDGE_MARGIN || tip.y > 1 - EDGE_MARGIN;
+    if (nearEdge){
+      hs.lastX = null; hs.lastY = null; hs.midX = null; hs.midY = null;
+      hs.rawX = null; hs.rawY = null; hs.smX = null; hs.smY = null;
+      if (settings.showSkeleton) drawSkeleton(lm, now);
+      return "idle";
+    }
+
+    var pt = mapPoint(tip.x, tip.y);
+
+    // a real fingertip can't teleport across a big chunk of the frame in
+    // 1/30s — a jump that large is a tracking glitch, not motion (or the
+    // hand sweeping into frame already mid-gesture). Treat it as a break:
+    // snap smoothing to the new spot and don't connect a line across the
+    // gap (this is what caused stray "laser shot" streaks).
+    var jumpLimit = inkCanvas.width * 0.08;
+    var jumped = false;
+    if (hs.rawX !== null){
+      var jdx = pt.x - hs.rawX, jdy = pt.y - hs.rawY;
+      if (Math.sqrt(jdx*jdx + jdy*jdy) > jumpLimit) jumped = true;
+    }
+    hs.rawX = pt.x; hs.rawY = pt.y;
+
+    // small tremor in the tracked hand shouldn't move the line at all —
+    // only real motion past this deadzone updates the point, and even then
+    // it's eased in gradually. This is what keeps strokes calm and straight
+    // instead of visibly shaking.
+    var JITTER_DEADZONE = 2.6 * pixelRatio;
+    var SMOOTH_ALPHA = 0.32;
+
+    if (jumped || hs.smX === null){
+      hs.smX = pt.x; hs.smY = pt.y;
+    } else if (settings.smooth){
+      var jitterDx = pt.x - hs.smX, jitterDy = pt.y - hs.smY;
+      if (Math.sqrt(jitterDx*jitterDx + jitterDy*jitterDy) > JITTER_DEADZONE){
+        hs.smX += jitterDx * SMOOTH_ALPHA; hs.smY += jitterDy * SMOOTH_ALPHA;
+      }
+    } else {
+      hs.smX = pt.x; hs.smY = pt.y;
+    }
+    var x = hs.smX, y = hs.smY;
+
+    if (jumped){
+      hs.lastX = null; hs.lastY = null; hs.midX = null; hs.midY = null;
+    }
+
+    var mode = count === 1 ? "draw" : (count === 2 ? "erase" : "idle");
+
+    // belt-and-suspenders: no matter why two consecutive points ended up
+    // far apart, never connect them with one long segment — cap it here
+    // directly, independent of the raw-jump check above.
+    var maxSegment = inkCanvas.width * 0.1;
+    if (hs.lastX !== null){
+      var segDx = x - hs.lastX, segDy = y - hs.lastY;
+      if (Math.sqrt(segDx*segDx + segDy*segDy) > maxSegment){
+        hs.lastX = null; hs.lastY = null; hs.midX = null; hs.midY = null;
+      }
+    }
+
+    if (mode === "draw"){
+      var bw = settings.brushSize * pixelRatio;
+      if (hs.lastX === null){
+        strokeGlowDot(x, y, settings.color, bw);
+        hs.midX = x; hs.midY = y;
+      } else {
+        var newMidX = (hs.lastX + x) / 2, newMidY = (hs.lastY + y) / 2;
+        strokeGlowSegment(hs.midX, hs.midY, hs.lastX, hs.lastY, newMidX, newMidY, settings.color, bw);
+        hs.midX = newMidX; hs.midY = newMidY;
+      }
+      spawnParticles(x, y, settings.color);
+      hs.lastX = x; hs.lastY = y;
+    } else if (mode === "erase"){
+      var r = (settings.eraserSize/2) * pixelRatio;
+      var steps = hs.lastX !== null ? 6 : 1;
+      for (var i=1;i<=steps;i++){
+        var ix = hs.lastX !== null ? hs.lastX + (x-hs.lastX)*i/steps : x;
+        var iy = hs.lastY !== null ? hs.lastY + (y-hs.lastY)*i/steps : y;
+        softEraseDab(ix, iy, r);
+      }
+      hs.lastX = x; hs.lastY = y; hs.midX = null; hs.midY = null;
+    } else {
+      hs.lastX = null; hs.lastY = null; hs.midX = null; hs.midY = null;
+    }
+
+    if (settings.showSkeleton) drawSkeleton(lm, now);
+
+    // live cursor ring (overlay only — cleared every frame)
+    overlayCtx.save();
+    var ringColor = mode === "draw" ? "#2ee6a6" : mode === "erase" ? "#ff6b6b" : "#7b8299";
+    overlayCtx.strokeStyle = ringColor;
+    overlayCtx.lineWidth = 2.4 * pixelRatio;
+    overlayCtx.shadowColor = ringColor;
+    overlayCtx.shadowBlur = 10 * pixelRatio;
+    var ringR = mode === "erase" ? (settings.eraserSize/2) * pixelRatio : 9 * pixelRatio;
+    overlayCtx.beginPath(); overlayCtx.arc(x, y, ringR, 0, Math.PI*2); overlayCtx.stroke();
+    overlayCtx.restore();
+
+    return mode;
+  }
+
+  var lastChipMode = null;
+  var chipDot = gestureChip.querySelector(".dot");
+  function updateGestureChip(mode, handCount){
+    var effective = !running ? "off" : (handCount === 0 ? "none" : mode);
+    gestureChip.classList.remove("draw","erase");
+    if (!running){
+      gestureLabel.textContent = "Camera off";
+    } else if (handCount === 0){
+      gestureLabel.textContent = "No hand detected";
+    } else if (mode === "draw"){
+      gestureChip.classList.add("draw");
+      gestureLabel.textContent = "Drawing";
+    } else if (mode === "erase"){
+      gestureChip.classList.add("erase");
+      gestureLabel.textContent = "Erasing";
+    } else {
+      gestureLabel.textContent = "Paused";
+    }
+    chipDot.classList.toggle("live", running && (mode === "draw" || mode === "erase"));
+    if (effective !== lastChipMode){
+      gestureChip.classList.remove("pulse"); void gestureChip.offsetWidth;
+      gestureChip.classList.add("pulse");
+      lastChipMode = effective;
+    }
+  }
+
+  /* ---------- countdown ---------- */
+  var countdownOverlay = $("countdownOverlay");
+  var countdownNum = $("countdownNum");
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function runCountdown(){
+    return new Promise(function(resolve){
+      var n = 3;
+      countdownOverlay.classList.remove("hidden");
+      function tick(){
+        countdownNum.textContent = n > 0 ? String(n) : "Go!";
+        if (!reduceMotion){
+          countdownNum.classList.remove("pop"); void countdownNum.offsetWidth; countdownNum.classList.add("pop");
+        }
+        if (n <= 0){
+          setTimeout(function(){ countdownOverlay.classList.add("hidden"); resolve(); }, 450);
+          return;
+        }
+        n--;
+        setTimeout(tick, 700);
+      }
+      tick();
+    });
+  }
+
+  /* ---------- recording ---------- */
+  var recordCanvas = document.createElement("canvas");
+  var recordCtx = recordCanvas.getContext("2d");
+  var mediaRecorder = null;
+  var recordedChunks = [];
+  var recording = false;
+  var recordStartTime = 0;
+  var recordTimerId = null;
+
+  function compositeRecordFrame(){
+    var w = recordCanvas.width, h = recordCanvas.height;
+    if (!w || !h) return;
+    recordCtx.clearRect(0, 0, w, h);
+    if (settings.showCamera && video.videoWidth){
+      recordCtx.save();
+      if (settings.mirror){ recordCtx.translate(w, 0); recordCtx.scale(-1, 1); }
+      var vw = video.videoWidth, vh = video.videoHeight;
+      var scale = Math.max(w / vw, h / vh);
+      var dw = vw * scale, dh = vh * scale;
+      recordCtx.drawImage(video, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      recordCtx.restore();
+    } else {
+      recordCtx.fillStyle = settings.whiteboardColor;
+      recordCtx.fillRect(0, 0, w, h);
+    }
+    recordCtx.drawImage(inkCanvas, 0, 0);
+    recordCtx.drawImage(overlayCanvas, 0, 0);
+  }
+
+  function fmtTime(ms){
+    var s = Math.floor(ms / 1000);
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function startRecording(){
+    if (!running || recording) return;
+    recordCanvas.width = inkCanvas.width;
+    recordCanvas.height = inkCanvas.height;
+
+    var mimeCandidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+    var mime = null;
+    for (var i=0;i<mimeCandidates.length;i++){
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mimeCandidates[i])){
+        mime = mimeCandidates[i]; break;
+      }
+    }
+    var recStream;
+    try{
+      recStream = recordCanvas.captureStream(30);
+      mediaRecorder = mime ? new MediaRecorder(recStream, { mimeType: mime }) : new MediaRecorder(recStream);
+    }catch(err){
+      statusMsg.textContent = "Recording isn't supported in this browser.";
+      return;
+    }
+
+    recordedChunks = [];
+    mediaRecorder.ondataavailable = function(e){ if (e.data && e.data.size) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = function(){
+      if (!recordedChunks.length) return;
+      var blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "video/webm" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = "airdraw-recording-" + Date.now() + ".webm";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+      savePngPromptOverlay.classList.remove("hidden");
+    };
+    mediaRecorder.start();
+
+    recording = true;
+    recordStartTime = Date.now();
+    recordBtn.classList.add("recording");
+    recBadge.classList.remove("hidden");
+    recTimeEl.textContent = "0:00";
+    recordTimerId = setInterval(function(){
+      recTimeEl.textContent = fmtTime(Date.now() - recordStartTime);
+    }, 1000);
+  }
+
+  function stopRecording(){
+    if (!recording) return;
+    recording = false;
+    if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+    recordBtn.classList.remove("recording");
+    recBadge.classList.add("hidden");
+    if (recordTimerId){ clearInterval(recordTimerId); recordTimerId = null; }
+  }
+
+  recordBtn.addEventListener("click", function(){
+    if (recording) stopRecording(); else startRecording();
+  });
+
+  /* ---------- MediaPipe setup ---------- */
+  var handLandmarker = null;
+  var running = false;
+  var lastVideoTime = -1;
+  var rafId = null;
+  var stream = null;
+
+  var loadingOverlay = $("loadingOverlay");
+  var loadingMsg = $("loadingMsg");
+
+  async function createLandmarker(){
+    loadingMsg.textContent = "Loading hand-tracking model…";
+    loadingOverlay.classList.remove("hidden");
+    var vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    );
+    var opts = {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+        delegate: "GPU"
+      },
+      runningMode: "VIDEO",
+      numHands: settings.maxHands
+    };
+    try{
+      handLandmarker = await HandLandmarker.createFromOptions(vision, opts);
+    }catch(e1){
+      try{
+        opts.baseOptions.delegate = "CPU";
+        handLandmarker = await HandLandmarker.createFromOptions(vision, opts);
+      }catch(e2){
+        loadingOverlay.classList.add("hidden");
+        statusMsg.textContent = "Couldn't load the hand-tracking model. Check your internet connection and reload.";
+        throw e2;
+      }
+    }
+    loadingOverlay.classList.add("hidden");
+    statusMsg.textContent = "";
+  }
+
+  async function startCamera(){
+    startBtn.disabled = true;
+    statusMsg.textContent = "Requesting camera access…";
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({ video: { width:{ideal:1280}, height:{ideal:720} }, audio:false });
+    }catch(err){
+      startBtn.disabled = false;
+      if (err && err.name === "NotAllowedError"){
+        statusMsg.textContent = "Camera permission was denied. Allow camera access in your browser to use AirDraw.";
+      } else if (err && err.name === "NotFoundError"){
+        statusMsg.textContent = "No camera was found on this device.";
+      } else {
+        statusMsg.textContent = "Couldn't access the camera (" + (err && err.message ? err.message : "unknown error") + ").";
+      }
+      return;
+    }
+
+    video.srcObject = stream;
+    await new Promise(function(resolve){ video.onloadedmetadata = resolve; });
+    await video.play();
+    resizeCanvases();
+
+    if (!handLandmarker){
+      try{ await createLandmarker(); }
+      catch(e){ stopCamera(); return; }
+    }
+
+    placeholder.classList.add("hidden");
+    video.classList.toggle("cam-hidden", !settings.showCamera);
+    whiteboardBg.style.background = settings.showCamera ? "transparent" : settings.whiteboardColor;
+    stopBtn.disabled = false;
+    statusMsg.textContent = "";
+
+    await runCountdown();
+
+    startBtn.disabled = true;
+    recordBtn.disabled = false;
+    running = true;
+    handState = freshHandState();
+    focusedLabel = null;
+    loop();
+  }
+
+  function stopCamera(){
+    running = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    if (recording) stopRecording();
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    particles = [];
+    countdownOverlay.classList.add("hidden");
+    if (stream){
+      stream.getTracks().forEach(function(t){ t.stop(); });
+      stream = null;
+    }
+    video.srcObject = null;
+    placeholder.classList.remove("hidden");
+    stopBtn.disabled = true;
+    startBtn.disabled = false;
+    recordBtn.disabled = true;
+    updateGestureChip("idle", 0);
+    statusMsg.textContent = "";
+  }
+
+  function loop(){
+    if (!running) return;
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    if (video.readyState >= 2 && video.currentTime !== lastVideoTime){
+      lastVideoTime = video.currentTime;
+      var now = performance.now();
+      var result = handLandmarker.detectForVideo(video, now);
+      var handCount = result && result.landmarks ? result.landmarks.length : 0;
+      var lastMode = "idle";
+
+      if (handCount){
+        var labels = [];
+        for (var i=0;i<handCount;i++) labels.push(getHandLabel(result, i));
+
+        // stick with the focused hand as long as it's still in frame; only
+        // hand off to the other one once it disappears
+        if (focusedLabel === null || labels.indexOf(focusedLabel) === -1){
+          focusedLabel = labels[0];
+          handState = freshHandState();
+        }
+        var fi = labels.indexOf(focusedLabel);
+        lastMode = processHand(result.landmarks[fi], handState, now);
+      } else {
+        focusedLabel = null;
+        handState = freshHandState();
+      }
+      updateGestureChip(lastMode, handCount);
+    }
+    updateAndDrawParticles();
+    if (recording) compositeRecordFrame();
+    rafId = requestAnimationFrame(loop);
+  }
+
+  startBtn.addEventListener("click", startCamera);
+  stopBtn.addEventListener("click", stopCamera);
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    startBtn.disabled = true;
+    statusMsg.textContent = "This browser doesn't support camera access. Try a recent Chrome, Edge, or Firefox.";
+  }
+
+  window.addEventListener("beforeunload", function(){
+    if (stream) stream.getTracks().forEach(function(t){ t.stop(); });
+  });
+</script>
+</body>
+</html>
